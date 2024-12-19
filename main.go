@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -12,6 +13,82 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/kelseyhightower/envconfig"
 )
+
+type Accommodation struct {
+	Source     string `default:"discoverSwiss"`
+	Active     bool   `default:"true"`
+	Shortname  string
+	AccoDetail struct {
+		Language AccoDetailLanguage `json:"de"`
+	} `json:"AccoDetail"`
+
+	GpsInfo []struct {
+		Gpstype   string  `json:"Gpstype"`
+		Latitude  float64 `json:"Latitude"`
+		Longitude float64 `json:"Longitude"`
+	} `json:"GpsInfo"`
+
+	AccoCategory struct {
+		Id string `json:"Id"`
+	} `json:"AccoCategory"`
+
+	AccoOverview struct {
+		TotalRooms   int    `json:"TotalRooms"`
+		SingleRooms  int    `json:"SingleRooms"`
+		DoubleRooms  int    `json:"DoubleRooms"`
+		CheckInFrom  string `json:"CheckInFrom"`
+		CheckInTo    string `json:"CheckInTo"`
+		CheckOutFrom string `json:"CheckOutFrom"`
+		CheckOutTo   string `json:"CheckOutTo"`
+		MaxPersons   int    `json:"MaxPersons"`
+	} `json:"AccoOverview"`
+}
+
+type AccoDetailLanguage struct {
+	Name        string `json:"Name"`
+	Street      string `json:"Street"`
+	Zip         string `json:"Zip"`
+	City        string `json:"City"`
+	CountryCode string `json:"CountryCode"`
+	Email       string `json:"Email"`
+	Phone       string `json:"Phone"`
+}
+
+type DiscoverSwissResponse struct {
+	Count         int               `json:"count"`
+	HasNextPage   bool              `json:"hasNextPage"`
+	NextPageToken string            `json:"nextPageToken"`
+	Data          []LodgingBusiness `json:"data"`
+}
+type LodgingBusiness struct {
+	Name string `json:"name"`
+
+	Address struct {
+		AddressCountry  string `json:"addressCountry"`
+		AddressLocality string `json:"addressLocality"`
+		PostalCode      string `json:"postalCode"`
+		StreetAddress   string `json:"streetAddress"`
+		Email           string `json:"email"`
+		Telephone       string `json:"telephone"`
+	} `json:"address"`
+
+	Geo struct {
+		Latitude  float64 `json:"latitude"`
+		Longitude float64 `json:"longitude"`
+	} `json:"geo"`
+
+	NumberOfRooms []struct {
+		PropertyID string `json:"propertyId"`
+		Value      string `json:"value"`
+	} `json:"numberOfRooms"`
+
+	NumberOfBeds int `json:"numberOfBeds"`
+
+	CheckinTime      string `json:"checkinTime"`
+	CheckinTimeTo    string `json:"checkinTimeTo"`
+	CheckoutTimeFrom string `json:"checkoutTimeFrom"`
+	CheckoutTime     string `json:"checkoutTime"`
+}
 
 var env struct {
 	HTTP_URL    string
@@ -29,35 +106,33 @@ func FailOnError(err error, msg string) {
 	}
 }
 
-func lodgingRequest(url *url.URL, httpHeaders http.Header, httpMethod string) string {
+func lodgingRequest(url *url.URL, httpHeaders http.Header, httpMethod string) (string, error) {
 	headers := httpHeaders
 	u := url
 	req, err := http.NewRequest(httpMethod, u.String(), http.NoBody)
-	FailOnError(err, "could not create http request")
+	if err != nil {
+		return "", fmt.Errorf("could not create http request: %w", err)
+	}
 
 	req.Header = headers
 
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
-		slog.Error("error during http request:", "err", err)
-		return ""
+		return "", fmt.Errorf("error during http request: %w", err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		slog.Error("http request returned non-Ok status", "statusCode", resp.StatusCode)
-		return ""
+		return "", fmt.Errorf("http request returned non-Ok status: %d", resp.StatusCode)
 	}
 
 	defer resp.Body.Close()
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		slog.Error("error reading response body:", "err", err)
-		return ""
+		return "", fmt.Errorf("error reading DiscoverSwissResponse body: %w", err)
 	}
 
-	// Convert body to string
-	return string(body)
+	return string(body), nil
 }
 
 func customHeaders() http.Header {
@@ -82,8 +157,74 @@ func customHeaders() http.Header {
 	return headers
 }
 
-func main() {
+func mapLodgingBusinessToAccommodation(lb LodgingBusiness) Accommodation {
+	acco := Accommodation{
+		Source:    "discoverSwiss",
+		Active:    true,
+		Shortname: lb.Name,
+	}
 
+	acco.GpsInfo = []struct {
+		Gpstype   string  `json:"Gpstype"`
+		Latitude  float64 `json:"Latitude"`
+		Longitude float64 `json:"Longitude"`
+	}{
+		{
+			Gpstype:   "position",
+			Latitude:  lb.Geo.Latitude,
+			Longitude: lb.Geo.Longitude,
+		},
+	}
+
+	acco.AccoDetail.Language = AccoDetailLanguage{
+		Name:        lb.Name,
+		Street:      lb.Address.StreetAddress,
+		Zip:         lb.Address.PostalCode,
+		City:        lb.Address.AddressLocality,
+		CountryCode: lb.Address.AddressCountry,
+		Email:       lb.Address.Email,
+		Phone:       lb.Address.Telephone,
+	}
+
+	var totalRooms, singleRooms, doubleRooms int
+	for _, room := range lb.NumberOfRooms {
+		value := 0
+		fmt.Sscanf(room.Value, "%d", &value) // Convert string to int
+
+		switch room.PropertyID {
+		case "total":
+			totalRooms = value
+		case "single":
+			singleRooms = value
+		case "double":
+			doubleRooms = value
+		}
+	}
+
+	acco.AccoOverview = struct {
+		TotalRooms   int    `json:"TotalRooms"`
+		SingleRooms  int    `json:"SingleRooms"`
+		DoubleRooms  int    `json:"DoubleRooms"`
+		CheckInFrom  string `json:"CheckInFrom"`
+		CheckInTo    string `json:"CheckInTo"`
+		CheckOutFrom string `json:"CheckOutFrom"`
+		CheckOutTo   string `json:"CheckOutTo"`
+		MaxPersons   int    `json:"MaxPersons"`
+	}{
+		TotalRooms:   totalRooms,
+		SingleRooms:  singleRooms,
+		DoubleRooms:  doubleRooms,
+		CheckInFrom:  lb.CheckinTime,
+		CheckInTo:    lb.CheckinTimeTo,
+		CheckOutFrom: lb.CheckoutTimeFrom,
+		CheckOutTo:   lb.CheckoutTime,
+		MaxPersons:   lb.NumberOfBeds,
+	}
+
+	return acco
+}
+
+func main() {
 	err := godotenv.Load()
 	if err != nil {
 		slog.Error("Error loading .env file", "err", err)
@@ -92,12 +233,32 @@ func main() {
 	envconfig.MustProcess("", &env)
 
 	headers := customHeaders()
-	//httpMethod := env.HTTP_METHOD
 	url, err := url.Parse(env.HTTP_URL)
-	FailOnError(err, "failed parsing url")
+	if err != nil {
+		slog.Error("failed parsing url", "err", err)
+		return
+	}
 
-	body := lodgingRequest(url, headers, "GET")
+	body, err := lodgingRequest(url, headers, "GET")
+	if err != nil {
+		slog.Error("failed making request", "err", err)
+		return
+	}
 
-	fmt.Println(body)
+	var DiscoverSwissResponse DiscoverSwissResponse
+	err = json.Unmarshal([]byte(body), &DiscoverSwissResponse)
+	if err != nil {
+		slog.Error("failed unmarshalling DiscoverSwissResponse object", "err", err)
+		return
+	}
+
+	//fmt.Printf("%+v\n", DiscoverSwissResponse.Data[0])
+
+	accomodation := mapLodgingBusinessToAccommodation(DiscoverSwissResponse.Data[0])
+
+	//fmt.Printf("%+v\n", accomodation)
+
+	jsonData, _ := json.MarshalIndent(accomodation, "", "    ")
+	fmt.Println(string(jsonData))
 
 }

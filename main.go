@@ -18,6 +18,11 @@ type Accommodation struct {
 	Source     string `default:"discoverSwiss"`
 	Active     bool   `default:"true"`
 	Shortname  string
+
+	Meta struct {
+		Id string `json:"Id"`
+	} `json:"_Meta"`
+
 	AccoDetail struct {
 		Language AccoDetailLanguage `json:"de"`
 	} `json:"AccoDetail"`
@@ -28,9 +33,13 @@ type Accommodation struct {
 		Longitude float64 `json:"Longitude"`
 	} `json:"GpsInfo"`
 
-	AccoCategory struct {
+	// AccoCategory struct {
+	// 	Id string `json:"Id"`
+	// } `json:"AccoCategory"`
+
+	AccoType struct {
 		Id string `json:"Id"`
-	} `json:"AccoCategory"`
+	} `json:"AccoType"`
 
 	AccoOverview struct {
 		TotalRooms   int    `json:"TotalRooms"`
@@ -82,12 +91,22 @@ type LodgingBusiness struct {
 		Value      string `json:"value"`
 	} `json:"numberOfRooms"`
 
+	StarRating StarRating `json:"starRating"`
+
 	NumberOfBeds int `json:"numberOfBeds"`
+
+	Identifier string `json:"identifier"`
 
 	CheckinTime      string `json:"checkinTime"`
 	CheckinTimeTo    string `json:"checkinTimeTo"`
 	CheckoutTimeFrom string `json:"checkoutTimeFrom"`
 	CheckoutTime     string `json:"checkoutTime"`
+}
+
+type StarRating struct {
+	RatingValue    float64 `json:"ratingValue"`
+	AdditionalType string  `json:"additionalType"`
+	Name           string  `json:"name"`
 }
 
 var env struct {
@@ -157,12 +176,31 @@ func customHeaders() http.Header {
 	return headers
 }
 
+// // Helper function to map star rating name to AccoCategory Id
+// func mapStarRatingToAccoCategoryId(name string) string {
+// 	// Check if the name contains a number
+// 	if len(name) > 0 && (name[0] >= '1' && name[0] <= '5') {
+// 		return fmt.Sprintf("%dstars", name[0]-'0')
+// 	}
+// 	// Return the original name if it doesn't contain stars
+// 	return name
+// }
+
+// Helper function to map additional type to AccoType Id
+func mapAdditionalTypeToAccoTypeId(additionalType string) string {
+	if strings.EqualFold(additionalType, "Hotel") {
+		return "HotelPension"
+	}
+	return additionalType
+}
 func mapLodgingBusinessToAccommodation(lb LodgingBusiness) Accommodation {
 	acco := Accommodation{
 		Source:    "discoverSwiss",
 		Active:    true,
 		Shortname: lb.Name,
 	}
+
+	acco.Meta.Id = lb.Identifier
 
 	acco.GpsInfo = []struct {
 		Gpstype   string  `json:"Gpstype"`
@@ -219,6 +257,22 @@ func mapLodgingBusinessToAccommodation(lb LodgingBusiness) Accommodation {
 		CheckOutFrom: lb.CheckoutTimeFrom,
 		CheckOutTo:   lb.CheckoutTime,
 		MaxPersons:   lb.NumberOfBeds,
+	}
+
+	// acco.AccoCategory = struct {
+	// 	Id   string `json:"Id"`
+	// 	Self string `json:"Self"`
+	// }{
+	// 	Id: mapStarRatingToAccoCategoryId(lodging.StarRating.Name),
+	// 	Self: fmt.Sprintf("https://api.tourism.testingmachine.eu/v1/AccommodationTypes/%s",
+	// 		mapStarRatingToAccoCategoryId(lodging.StarRating.Name)),
+	// }
+
+	// Map AccoType
+	acco.AccoType = struct {
+		Id string `json:"Id"`
+	}{
+		Id: mapAdditionalTypeToAccoTypeId(lb.StarRating.AdditionalType),
 	}
 
 	return acco

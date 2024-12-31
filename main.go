@@ -186,7 +186,6 @@ func customHeaders() http.Header {
 // 	return name
 // }
 
-// Helper function to map additional type to AccoType Id
 func mapAdditionalTypeToAccoTypeId(additionalType string) string {
 	if strings.EqualFold(additionalType, "Hotel") {
 		return "HotelPension"
@@ -227,7 +226,7 @@ func mapLodgingBusinessToAccommodation(lb LodgingBusiness) Accommodation {
 	var totalRooms, singleRooms, doubleRooms int
 	for _, room := range lb.NumberOfRooms {
 		value := 0
-		fmt.Sscanf(room.Value, "%d", &value) // Convert string to int
+		fmt.Sscanf(room.Value, "%d", &value)
 
 		switch room.PropertyID {
 		case "total":
@@ -268,7 +267,6 @@ func mapLodgingBusinessToAccommodation(lb LodgingBusiness) Accommodation {
 	// 		mapStarRatingToAccoCategoryId(lodging.StarRating.Name)),
 	// }
 
-	// Map AccoType
 	acco.AccoType = struct {
 		Id string `json:"Id"`
 	}{

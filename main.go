@@ -277,40 +277,63 @@ func mapLodgingBusinessToAccommodation(lb LodgingBusiness) Accommodation {
 }
 
 func main() {
-	err := godotenv.Load()
-	if err != nil {
-		slog.Error("Error loading .env file", "err", err)
-	}
+    err := godotenv.Load()
+    if err != nil {
+        slog.Error("Error loading .env file", "err", err)
+    }
 
-	envconfig.MustProcess("", &env)
+    envconfig.MustProcess("", &env)
 
-	headers := customHeaders()
-	url, err := url.Parse(env.HTTP_URL)
-	if err != nil {
-		slog.Error("failed parsing url", "err", err)
-		return
-	}
+    headers := customHeaders()
+    baseURL, err := url.Parse(env.HTTP_URL)
+    if err != nil {
+        slog.Error("failed parsing url", "err", err)
+        return
+    }
 
-	body, err := lodgingRequest(url, headers, "GET")
-	if err != nil {
-		slog.Error("failed making request", "err", err)
-		return
-	}
+    continuationToken := ""
+    for {
+        currentURL := *baseURL
 
-	var DiscoverSwissResponse DiscoverSwissResponse
-	err = json.Unmarshal([]byte(body), &DiscoverSwissResponse)
-	if err != nil {
-		slog.Error("failed unmarshalling DiscoverSwissResponse object", "err", err)
-		return
-	}
+    if continuationToken != "" {
+        q := currentURL.Query()
 
-	//fmt.Printf("%+v\n", DiscoverSwissResponse.Data[0])
+        //fmt.Println("continuationToken", continuationToken)
 
-	accomodation := mapLodgingBusinessToAccommodation(DiscoverSwissResponse.Data[0])
+        q.Set("continuationToken", continuationToken)
+        currentURL.RawQuery = q.Encode()
+    }
 
-	//fmt.Printf("%+v\n", accomodation)
+		//fmt.Println("currentURL", currentURL.String())
+        body, err := lodgingRequest(&currentURL, headers, "GET")
+        if err != nil {
+            slog.Error("failed making request", "err", err)
+            return
+        }
 
-	jsonData, _ := json.MarshalIndent(accomodation, "", "    ")
-	fmt.Println(string(jsonData))
+        var response DiscoverSwissResponse
+        err = json.Unmarshal([]byte(body), &response)
+        if err != nil {
+            slog.Error("failed unmarshalling DiscoverSwissResponse object", "err", err)
+            return
+        }
 
+        // Process all items in the current page
+        for _, lodging := range response.Data {
+            accommodation := mapLodgingBusinessToAccommodation(lodging)
+            jsonData, err := json.MarshalIndent(accommodation, "", "    ")
+            if err != nil {
+                slog.Error("failed marshalling accommodation", "err", err)
+                continue
+            }
+            fmt.Println(string(jsonData))
+        }
+
+        // Check if there are more pages
+        if !response.HasNextPage || response.NextPageToken == "" {
+            break
+        }
+
+        continuationToken = response.NextPageToken
+    }
 }

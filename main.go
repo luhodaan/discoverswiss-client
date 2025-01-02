@@ -318,7 +318,7 @@ func main() {
             return
         }
 
-        // Process all items in the current page
+       
         for _, lodging := range response.Data {
             accommodation := mapLodgingBusinessToAccommodation(lodging)
             jsonData, err := json.MarshalIndent(accommodation, "", "    ")
@@ -329,7 +329,7 @@ func main() {
             fmt.Println(string(jsonData))
         }
 
-        // Check if there are more pages
+        
         if !response.HasNextPage || response.NextPageToken == "" {
             break
         }
